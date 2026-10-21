@@ -1,317 +1,198 @@
-import re
-
 from ingestion.loader import load_markdown_files
 
 
-# Sections that should remain independent because they usually
-# contain direct answers to user questions.
-STANDALONE_SECTION_KEYWORDS = {
-    "features",
-    "reported outcomes",
-    "services",
-    "capabilities",
-    "contact information",
-    "pricing",
-    "grounding rule",
-    "response style",
-    "lead qualification",
-    "division selection",
-}
+# Soft size budget for a chunk. Sections are grouped up to this size
+# but a section is never cut in the middle, so a single large section
+# becomes one chunk even when it exceeds the budget.
+MAX_CHUNK_CHARS = 2000
+
+# Fragments shorter than this (e.g. a lone page label) carry no answer.
+MIN_CHUNK_CHARS = 50
 
 
-# Short sections with descriptive/metadata information can be
-# combined with the next related section.
-CONTEXT_SECTION_KEYWORDS = {
-    "client",
-    "division",
-    "platform",
-    "overview",
-    "background",
-}
-
-
-def normalize_title(title: str) -> str:
+def build_tree(sections):
     """
-    Normalize a section title for keyword matching.
+    Turn a flat list of heading sections into a tree using
+    heading levels. The root node holds the whole document.
     """
 
-    return re.sub(
-        r"\s+",
-        " ",
-        title.strip().lower(),
-    )
-
-
-def is_standalone_section(title: str) -> bool:
-    """
-    Check whether a section should remain independent.
-    """
-
-    normalized = normalize_title(title)
-
-    return any(
-        keyword in normalized
-        for keyword in STANDALONE_SECTION_KEYWORDS
-    )
-
-
-def is_context_section(title: str) -> bool:
-    """
-    Check whether a section can act as contextual metadata.
-    """
-
-    normalized = normalize_title(title)
-
-    return any(
-        keyword in normalized
-        for keyword in CONTEXT_SECTION_KEYWORDS
-    )
-
-
-def get_sections(text: str):
-    """
-    Split Markdown into logical sections.
-
-    Heading-only sections are ignored.
-
-    Context sections such as Client, Division and Platform
-    may be combined with the next meaningful section.
-    """
-
-    lines = text.splitlines()
-
-    sections = []
-
-    current_title = None
-    current_content = []
-
-    for line in lines:
-
-        heading_match = re.match(
-            r"^#{1,3}\s+(.+)$",
-            line.strip(),
-        )
-
-        if heading_match:
-
-            if current_title is not None:
-
-                content = "\n".join(
-                    current_content
-                ).strip()
-
-                if content:
-                    sections.append({
-                        "title": current_title,
-                        "content": content,
-                    })
-
-            current_title = heading_match.group(1).strip()
-            current_content = []
-
-        else:
-            current_content.append(line)
-
-    # Save final section
-    if current_title is not None:
-
-        content = "\n".join(
-            current_content
-        ).strip()
-
-        if content:
-            sections.append({
-                "title": current_title,
-                "content": content,
-            })
-
-    return merge_context_sections(sections)
-
-
-def merge_context_sections(sections):
-    """
-    Merge consecutive metadata/context sections with the next
-    meaningful section.
-
-    Example:
-
-        Client
-        Sleepyhead
-
-        Division
-        KLOCOM
-
-        Platform
-        Shopify Plus
-
-        Features
-        ...
-
-    becomes:
-
-        Client | Division | Platform | Features
-
-        Client:
-        Sleepyhead
-
-        Division:
-        KLOCOM
-
-        Platform:
-        Shopify Plus
-
-        Features:
-        ...
-    """
-
-    if not sections:
-        return []
-
-    merged = []
-
-    pending_context = []
+    root = {"level": 0, "heading": "", "content": "", "children": []}
+    stack = [root]
 
     for section in sections:
+        node = {**section, "children": []}
 
-        title = section["title"]
-        content = section["content"]
-
-        # Context sections are collected until we reach
-        # a meaningful standalone section.
-        if is_context_section(title):
-
-            pending_context.append(section)
+        # Text before the first heading belongs to the root itself.
+        if node["level"] == 0:
+            root["content"] = "\n\n".join(
+                part for part in (root["content"], node["content"]) if part
+            )
             continue
 
-        # We reached a meaningful section.
-        if pending_context:
+        while stack[-1]["level"] >= node["level"]:
+            stack.pop()
 
-            combined_parts = []
+        stack[-1]["children"].append(node)
+        stack.append(node)
 
-            for context in pending_context:
-
-                combined_parts.append(
-                    f"{context['title']}:\n"
-                    f"{context['content']}"
-                )
-
-            combined_parts.append(
-                f"{title}:\n"
-                f"{content}"
-            )
-
-            combined_title = " | ".join(
-                [
-                    item["title"]
-                    for item in pending_context
-                ]
-                + [title]
-            )
-
-            merged.append({
-                "title": combined_title,
-                "content": "\n\n".join(
-                    combined_parts
-                ),
-            })
-
-            pending_context = []
-
-        else:
-
-            merged.append({
-                "title": title,
-                "content": content,
-            })
-
-    # Handle any context sections at the end.
-    if pending_context:
-
-        combined_parts = []
-
-        for context in pending_context:
-
-            combined_parts.append(
-                f"{context['title']}:\n"
-                f"{context['content']}"
-            )
-
-        merged.append({
-            "title": " | ".join(
-                item["title"]
-                for item in pending_context
-            ),
-            "content": "\n\n".join(
-                combined_parts
-            ),
-        })
-
-    return merged
+    return root
 
 
-def chunk_text(
-    text: str,
-    chunk_size: int = 800,
-    chunk_overlap: int = 100,
-):
+def render(node) -> str:
     """
-    Split large sections into smaller chunks.
+    Render a node and all of its descendants as Markdown text.
     """
 
-    if len(text) <= chunk_size:
-        return [text]
+    parts = []
 
-    chunks = []
+    if node["heading"]:
+        parts.append(f"{'#' * node['level']} {node['heading']}")
 
-    start = 0
-    text_length = len(text)
+    if node["content"]:
+        parts.append(node["content"])
 
-    while start < text_length:
+    for child in node["children"]:
+        parts.append(render(child))
 
-        end = start + chunk_size
-
-        chunk = text[start:end].strip()
-
-        if chunk:
-            chunks.append(chunk)
-
-        start += chunk_size - chunk_overlap
-
-    return chunks
+    return "\n\n".join(parts)
 
 
-def create_chunks(documents):
+def has_text(node) -> bool:
+    return bool(node["content"]) or any(
+        has_text(child) for child in node["children"]
+    )
+
+
+def split_node(node, breadcrumb, max_chars):
     """
-    Create semantic chunks from all knowledge-base documents.
+    Yield (title, content) chunks for a node.
+
+    A node that fits the budget is emitted whole. Otherwise its
+    children are packed, whole, into groups that fit the budget.
+    Each chunk carries its heading breadcrumb as its title so it keeps
+    its context (e.g. a case study's client name).
+    """
+
+    if node["heading"]:
+        breadcrumb = breadcrumb + [node["heading"]]
+
+    text = render(node)
+
+    if len(text) <= max_chars or not node["children"]:
+        if has_text(node):
+            yield " > ".join(breadcrumb), text
+        return
+
+    intro_parts = []
+
+    if node["heading"]:
+        intro_parts.append(f"{'#' * node['level']} {node['heading']}")
+
+    if node["content"]:
+        intro_parts.append(node["content"])
+
+    intro = "\n\n".join(intro_parts)
+
+    groups = []
+    group = []
+    group_size = len(intro)
+
+    for child in node["children"]:
+        child_text = render(child)
+
+        # Oversized children are split on their own headings.
+        if len(child_text) > max_chars:
+            if group:
+                groups.append(group)
+            group, group_size = [], len(intro)
+
+            groups.append(child)
+            continue
+
+        if group and group_size + len(child_text) > max_chars:
+            groups.append(group)
+            group, group_size = [], len(intro)
+
+        group.append(child)
+        group_size += len(child_text)
+
+    if group:
+        groups.append(group)
+
+    # Keep the intro text even if every child was split separately.
+    if node["content"] and not any(isinstance(item, list) for item in groups):
+        yield " > ".join(breadcrumb), intro
+
+    for item in groups:
+        if isinstance(item, dict):
+            yield from split_node(item, breadcrumb, max_chars)
+            continue
+
+        if not any(has_text(child) for child in item):
+            continue
+
+        sibling_headings = " | ".join(
+            child["heading"] for child in item if child["heading"]
+        )
+
+        title = " > ".join(
+            part for part in (" > ".join(breadcrumb), sibling_headings) if part
+        )
+
+        body = "\n\n".join(
+            part for part in [intro] + [render(child) for child in item] if part
+        )
+
+        yield title, body
+
+
+def create_chunks(documents, max_chars: int = MAX_CHUNK_CHARS):
+    """
+    Create structure-aware chunks from loaded documents.
+
+    Chunk boundaries always fall on heading boundaries.
     """
 
     all_chunks = []
 
     for document in documents:
+        tree = build_tree(document["sections"])
 
-        sections = get_sections(
-            document["content"]
+        # Use the document title as the root breadcrumb unless the
+        # first heading already carries it.
+        root_breadcrumb = []
+
+        first_heading = next(
+            (
+                section["heading"]
+                for section in document["sections"]
+                if section["heading"]
+            ),
+            "",
         )
 
+        if document["title"] and document["title"] != first_heading:
+            root_breadcrumb = [document["title"]]
+
+        seen_contents = set()
         chunk_index = 0
 
-        for section in sections:
+        for title, content in split_node(tree, root_breadcrumb, max_chars):
+            # The same section can repeat within a page; keep one copy.
+            if content in seen_contents or len(content) < MIN_CHUNK_CHARS:
+                continue
 
-            chunks = chunk_text(
-                section["content"]
-            )
+            seen_contents.add(content)
 
-            for chunk in chunks:
+            all_chunks.append({
+                "filename": document["filename"],
+                "path": document["path"],
+                "title": title or document["title"],
+                "chunk_index": chunk_index,
+                "content": content,
+            })
 
-                all_chunks.append({
-                    "filename": document["filename"],
-                    "path": document["path"],
-                    "title": section["title"],
-                    "chunk_index": chunk_index,
-                    "content": chunk,
-                })
-
-                chunk_index += 1
+            chunk_index += 1
 
     return all_chunks
 

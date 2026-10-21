@@ -107,12 +107,10 @@ for question in questions:
 
     print("\nFINAL RERANKED RESULTS:")
 
-    for index, item in enumerate(
+    for index, result in enumerate(
         reranked,
         start=1,
     ):
-
-        result = item["result"]
 
         print(
             f"{index}. "
@@ -121,5 +119,5 @@ for question in questions:
             f"distance={result.distance:.4f} | "
             f"keyword={result.keyword_score:.4f} | "
             f"hybrid={result.hybrid_score:.4f} | "
-            f"rerank={item['score']:.4f}"
+            f"rerank={result.rerank_score:.4f}"
         )

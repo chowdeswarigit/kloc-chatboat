@@ -94,6 +94,7 @@ Determine whether the context supports answering the question.
         model="gpt-5-mini",
         instructions=SYSTEM_PROMPT,
         input=prompt,
+        reasoning={"effort": "low"},
     )
 
     raw_output = response.output_text.strip()

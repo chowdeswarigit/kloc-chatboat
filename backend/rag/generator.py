@@ -20,8 +20,8 @@ Rules:
    say:
    "I don't have that information in the current KLOC knowledge base."
 4. Be clear, professional, and concise.
-5. When useful, mention the relevant KLOC division such as
-   KLOCOM, KLOCAPPS, or KLOCERS.
+5. When useful, mention the relevant KLOC team or service named
+   in the context.
 """
 
 

@@ -7,13 +7,13 @@ from rag.embeddings import generate_embedding
 DEFAULT_VECTOR_WEIGHT = 0.70
 DEFAULT_KEYWORD_WEIGHT = 0.30
 
-DEFAULT_VECTOR_CANDIDATE_K = 15
-DEFAULT_KEYWORD_CANDIDATE_K = 15
+DEFAULT_VECTOR_CANDIDATE_K = 40
+DEFAULT_KEYWORD_CANDIDATE_K = 40
 
 
 def search_hybrid_chunks(
     query: str,
-    candidate_k: int = 15,
+    candidate_k: int = 40,
     vector_weight: float = DEFAULT_VECTOR_WEIGHT,
     keyword_weight: float = DEFAULT_KEYWORD_WEIGHT,
 ):

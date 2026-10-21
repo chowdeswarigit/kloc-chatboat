@@ -13,52 +13,24 @@ Rules:
 
 1. Preserve the original intent.
 
-2. ALWAYS preserve important named entities such as:
-   - Sleepyhead
-   - Pothys
-   - Curio
-   - Roam
-   - Sari Connected
-   - KLOCOM
-   - KLOCAPPS
-   - KLOCERS
+2. ALWAYS preserve named entities from the original question exactly
+   as written: company names, client names, team or division names,
+   product names, platforms, and technologies.
 
 3. Generate exactly 2 alternative queries.
 
-4. The FIRST alternative should be a short keyword-focused query.
+4. The FIRST alternative should be a short keyword-focused query:
+   the main entity followed by the main topic.
 
-   Format:
-   [important entity] + [main topic]
+5. The SECOND alternative should rephrase the question using
+   different but equivalent domain terminology.
 
-   Example:
-   Sleepyhead features
-   Sleepyhead reported outcomes
-   KLOCOM Shopify migrations
-   KLOCERS delivery pods
+6. Do not invent facts or add entities that are not in the question.
 
-5. The SECOND alternative should add useful domain-specific
-   terminology from the original question.
+7. Do not answer the question.
 
-   Example:
-   Sleepyhead Shopify Plus features
-   Sleepyhead conversion rate page load downtime
-   KLOCOM Shopify migration services
-
-6. For case studies, ALWAYS preserve the client name.
-
-7. For questions about features, include:
-   features
-
-8. For questions about outcomes, include:
-   reported outcomes
-   or specific outcome terms mentioned in the question.
-
-9. Do not invent facts.
-
-10. Do not answer the question.
-
-11. Return ONLY the two alternative queries,
-    one query per line.
+8. Return ONLY the two alternative queries,
+   one query per line.
 """
 
 
@@ -73,6 +45,7 @@ Original question:
 
 Generate 2 alternative search queries.
 """,
+        reasoning={"effort": "minimal"},
     )
 
     lines = [

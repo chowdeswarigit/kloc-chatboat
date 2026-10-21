@@ -14,23 +14,6 @@ Your job is NOT to answer the question.
 Your job is to produce the best semantic search query for retrieving
 the relevant KLOC knowledge-base chunks.
 
-IMPORTANT:
-
-The KLOC knowledge base contains:
-- Company information
-- KLOCOM
-- KLOCAPPS
-- KLOCERS
-- AI and Agentic Commerce
-- Case studies
-
-Known case-study clients include:
-- Sleepyhead
-- Pothys
-- Curio
-- Roam
-- Sari Connected
-
 Rules:
 
 1. Preserve the user's original intent.
@@ -49,20 +32,16 @@ Rules:
 6. Do not invent facts.
 
 7. Do not add a technology, platform, service, outcome, or capability
-   unless it is supported by the conversation or explicitly known
-   from the KLOC knowledge-base terminology.
+   unless it is supported by the conversation.
 
 8. Prefer concrete search terms over conversational wording.
 
-9. For questions about features, include the word "features".
+9. Keep the query concise, usually 3-12 words.
 
-10. For questions about reported results, include the words
-    "reported outcomes" when appropriate.
-
-11. Keep the query concise, usually 3-12 words.
-
-12. Return ONLY the rewritten search query.
+10. Return ONLY the rewritten search query.
 """
+
+
 def rewrite_query(question: str, history=None) -> str:
     conversation_text = ""
 
@@ -92,6 +71,8 @@ Create a concise, search-optimized query for the KLOC knowledge base.
         model="gpt-5-mini",
         instructions=SYSTEM_PROMPT,
         input=prompt,
+        # A short rewrite/classification needs little reasoning; this keeps it fast.
+        reasoning={"effort": "minimal"},
     )
 
     rewritten = response.output_text.strip()

@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg[binary]
+pgvector
+python-dotenv
+openai
+requests
+beautifulsoup4
+lxml
+# Install the CPU build first to avoid the large CUDA download:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+sentence-transformers

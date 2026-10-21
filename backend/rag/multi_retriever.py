@@ -1,3 +1,5 @@
+from app.config import RERANK_MIN_SCORE
+
 from rag.query_variants import generate_query_variants
 from rag.hybrid_retriever import search_hybrid_chunks
 from rag.reranker import rerank_results
@@ -6,7 +8,8 @@ from rag.reranker import rerank_results
 def search_with_query_variants(
     question: str,
     top_k: int = 5,
-    candidate_k: int = 15,
+    candidate_k: int = 40,
+    min_score: float = RERANK_MIN_SCORE,
 ):
     query_variants = generate_query_variants(question)
 
@@ -46,11 +49,7 @@ def search_with_query_variants(
 
                 unique_results[result.id] = result
 
-    candidates = sorted(
-        unique_results.values(),
-        key=lambda result: result.hybrid_score,
-        reverse=True,
-    )
+    candidates = list(unique_results.values())
 
     print(
         f"\nCandidate chunks before reranking: "
@@ -58,30 +57,25 @@ def search_with_query_variants(
     )
 
     # ---------------------------------------------------------
-    # Reranking
+    # Cross-encoder reranking
     # ---------------------------------------------------------
 
     reranked = rerank_results(
         question,
         candidates,
         top_k=top_k,
+        min_score=min_score,
     )
 
     print("\nReranked results:")
 
-    for item in reranked:
-
-        result = item["result"]
+    for chunk in reranked:
 
         print(
-            f"  - {result.path} | "
-            f"distance={result.distance:.4f} | "
-            f"keyword={result.keyword_score:.4f} | "
-            f"hybrid={result.hybrid_score:.4f} | "
-            f"rerank={item['score']:.4f}"
+            f"  - {chunk.path} | "
+            f"distance={chunk.distance:.4f} | "
+            f"hybrid={chunk.hybrid_score:.4f} | "
+            f"rerank={chunk.rerank_score:.4f}"
         )
 
-    return [
-        item["result"]
-        for item in reranked
-    ]
+    return reranked

@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,12 +7,24 @@ from app.api.chat import router as chat_router
 
 from sqlalchemy import text
 from app.database import engine
+from app.models import init_database
+from rag.reranker import get_reranker
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_database()
+
+    # Load the reranker model before the first request.
+    get_reranker()
+    yield
 
 
 app = FastAPI(
     title="KLOC AI",
     description="AI-powered KLOC knowledge and business assistant",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 

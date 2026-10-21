@@ -1,157 +1,97 @@
-import re
+from dataclasses import dataclass
+from functools import lru_cache
+
+import torch
+from sentence_transformers import CrossEncoder
+
+from app.config import RERANKER_MODEL
 
 
-STOPWORDS = {
-    "what",
-    "does",
-    "do",
-    "did",
-    "is",
-    "are",
-    "was",
-    "were",
-    "the",
-    "a",
-    "an",
-    "of",
-    "for",
-    "to",
-    "and",
-    "or",
-    "in",
-    "on",
-    "with",
-    "how",
-    "can",
-    "could",
-    "would",
-    "will",
-    "it",
-    "they",
-    "this",
-    "that",
-    "their",
-    "its",
-    "from",
-    "provide",
-    "support",
-}
+@dataclass
+class RetrievedChunk:
+    id: int
+    filename: str
+    path: str
+    title: str
+    chunk_index: int
+    content: str
+    distance: float
+    keyword_score: float
+    hybrid_score: float
+    rerank_score: float
 
 
-def tokenize(text: str) -> set[str]:
-    words = re.findall(
-        r"[a-zA-Z0-9]+",
-        text.lower(),
-    )
+@lru_cache(maxsize=1)
+def get_reranker() -> CrossEncoder:
+    """Load the cross-encoder once per process."""
 
-    return {
-        word
-        for word in words
-        if word not in STOPWORDS
-        and len(word) > 2
-    }
+    return CrossEncoder(RERANKER_MODEL)
 
 
-def keyword_overlap(
-    query_tokens: set[str],
-    text: str,
-) -> float:
+def build_passage(result) -> str:
+    return f"{result.title or ''}\n\n{result.content}".strip()
+
+
+def score_pairs(query: str, passages: list[str]) -> list[float]:
     """
-    Calculate the percentage of query terms
-    that appear in the given text.
+    Score (query, passage) pairs with the cross-encoder.
+
+    Scores are relevance probabilities between 0 and 1.
     """
 
-    if not query_tokens:
-        return 0.0
+    if not passages:
+        return []
 
-    text_tokens = tokenize(text)
-
-    matches = query_tokens.intersection(
-        text_tokens
+    scores = get_reranker().predict(
+        [(query, passage) for passage in passages],
+        batch_size=16,
+        show_progress_bar=False,
+        # Some cross-encoders return raw logits; normalise all of
+        # them to 0-1 so RERANK_MIN_SCORE means the same thing.
+        activation_fn=torch.nn.Sigmoid(),
     )
 
-    return len(matches) / len(query_tokens)
+    return [float(score) for score in scores]
 
-
-def calculate_rerank_score(query: str, result) -> dict:
-
-    query_tokens = tokenize(query)
-
-    vector_score = max(
-        0.0,
-        1.0 - result.distance,
-    )
-
-    keyword_score = min(
-        float(result.keyword_score or 0.0),
-        1.0,
-    )
-
-    title_score = keyword_overlap(
-        query_tokens,
-        result.title or "",
-    )
-
-    content_score = keyword_overlap(
-        query_tokens,
-        result.content or "",
-    )
-
-    path_score = keyword_overlap(
-        query_tokens,
-        result.path or "",
-    )
-
-    final_score = (
-        (vector_score * 0.40)
-        + (keyword_score * 0.20)
-        + (title_score * 0.20)
-        + (content_score * 0.15)
-        + (path_score * 0.05)
-    )
-
-    return {
-        "score": final_score,
-        "vector_score": vector_score,
-        "keyword_score": keyword_score,
-        "title_score": title_score,
-        "content_score": content_score,
-        "path_score": path_score,
-    }
 
 def rerank_results(
     query: str,
     results,
     top_k: int = 5,
+    min_score: float = 0.0,
 ):
     """
-    Rerank retrieved candidates.
+    Rerank retrieved candidates with the cross-encoder.
 
-    SQLAlchemy Row objects are immutable, so we return
-    dictionaries containing the original result and
-    reranking information instead of modifying the rows.
+    Returns RetrievedChunk objects ordered by relevance, keeping only
+    those scoring at least `min_score`. Chunk content is returned whole.
     """
 
-    scored_results = []
+    scores = score_pairs(
+        query,
+        [build_passage(result) for result in results],
+    )
 
-    for result in results:
-        scores = calculate_rerank_score(
-            query,
-            result,
+    reranked = [
+        RetrievedChunk(
+            id=result.id,
+            filename=result.filename,
+            path=result.path,
+            title=result.title,
+            chunk_index=result.chunk_index,
+            content=result.content,
+            distance=float(result.distance),
+            keyword_score=float(result.keyword_score or 0.0),
+            hybrid_score=float(result.hybrid_score),
+            rerank_score=score,
         )
+        for result, score in zip(results, scores)
+        if score >= min_score
+    ]
 
-        scored_results.append(
-            {
-                "result": result,
-                "score": scores["score"],
-                "details": scores,
-            }
-        )
-
-    # Highest reranking score first
-    scored_results.sort(
-        key=lambda item: item["score"],
+    reranked.sort(
+        key=lambda chunk: chunk.rerank_score,
         reverse=True,
     )
 
-    return scored_results[:top_k]
+    return reranked[:top_k]
