@@ -129,7 +129,7 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
         "https://kloc-chatboat-5mf3yj947-chows-projects-9a220fb0.vercel.app",
-        "https://kloc-chatboat.vercel.app/"
+        "https://kloc-chatboat.vercel.app"
         # Add your deployed Vercel frontend URL here.
     ],
     allow_credentials=True,
